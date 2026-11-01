@@ -36,3 +36,29 @@ Invoice approval demo app: ASP.NET Core 8 Web API with a small static web UI.
 
 - Commit real credentials, tokens or customer data.
 - Add business logic to `Program.cs` or controllers.
+
+## Approval Rules
+
+The approval service enforces role-based amount limits:
+
+| Role      | Max Amount    | Special Requirements                    |
+|-----------|---------------|-----------------------------------------|
+| Manager   | ≤ 50,000      | Single approver                         |
+| Director  | ≤ 500,000     | Single approver                         |
+| Any       | > 500,000     | Two distinct approvers; second MUST be Director |
+
+### Critical Rules to Test
+1. Manager cannot approve invoices above 50,000
+2. Director cannot approve invoices above 500,000
+3. Invoices above 500,000 require exactly two approvers
+4. Second approver on high-value invoices MUST be a Director
+5. Same user cannot appear as both approvers (even if roles allow it)
+6. Rejected attempts: invoice status remains unchanged, clear error returned
+
+## Test Commands
+
+Run all tests: `dotnet test backend/InvoiceApp.sln`
+
+Run mutation testing: `dotnet stryker run --project backend/src/InvoiceApp.Domain`
+
+Target: >80% mutation score for ApprovalService
