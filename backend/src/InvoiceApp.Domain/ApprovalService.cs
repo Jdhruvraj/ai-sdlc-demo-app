@@ -28,16 +28,54 @@ public class ApprovalService
         return invoice;
     }
 
-    public Invoice Approve(string invoiceId, string approver)
+    public record ApprovalResult {
+        public bool Success { get; set; }
+        public string? Error { get; set; }
+        public Invoice? Invoice { get; set; }
+    }
+
+    public ApprovalResult Approve(string invoiceId, string approver)
     {
         var invoice = Find(invoiceId);
         EnsurePending(invoice);
 
+        // Determine max approval amount based on role
+        var maxAmount = GetMaxApprovalAmount(approver);
+
+        if (invoice.Amount > maxAmount)
+        {
+            return new ApprovalResult 
+            { 
+                Success = false, 
+                Error = $"Invoice amount ({invoice.Amount}) exceeds Manager limit ({maxAmount})",
+                Invoice = null
+            };
+        }
+
+        // Approve successfully
         invoice.Status = InvoiceStatus.Approved;
         invoice.DecidedBy = approver;
         invoice.DecidedAt = DateTime.UtcNow;
         _repository.Update(invoice);
-        return invoice;
+
+        return new ApprovalResult 
+        { 
+            Success = true, 
+            Error = null, 
+            Invoice = invoice 
+        };
+    }
+
+    private decimal GetMaxApprovalAmount(string approver)
+    {
+        // Role detection based on username pattern
+        if (approver.Contains("manager", StringComparison.OrdinalIgnoreCase))
+            return 50_000m;
+        
+        if (approver.Contains("director", StringComparison.OrdinalIgnoreCase))
+            return 500_000m;
+        
+        throw new ArgumentException($"Unknown role for user: {approver}", nameof(approver));
     }
 
     public Invoice Reject(string invoiceId, string approver, string reason)

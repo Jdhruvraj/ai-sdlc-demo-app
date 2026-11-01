@@ -32,13 +32,15 @@ public class ApprovalServiceTests
     [Fact]
     public void Approve_SetsStatusApproverAndTimestamp()
     {
-        var service = ServiceFor(InvoiceWith("INV-1", InvoiceStatus.PendingApproval));
+        var invoice = InvoiceWith("INV-1", InvoiceStatus.PendingApproval);
+        var service = new ApprovalService(new FakeInvoiceRepository(invoice));
 
         var result = service.Approve("INV-1", "demo.approver");
 
-        Assert.Equal(InvoiceStatus.Approved, result.Status);
-        Assert.Equal("demo.approver", result.DecidedBy);
-        Assert.NotNull(result.DecidedAt);
+        Assert.True(result.Success);
+        Assert.Equal(InvoiceStatus.Approved, invoice.Status);
+        Assert.Equal("demo.approver", invoice.DecidedBy);
+        Assert.NotNull(invoice.DecidedAt);
     }
 
     [Fact]
@@ -60,7 +62,8 @@ public class ApprovalServiceTests
     [Fact]
     public void Reject_RecordsReasonAndApprover()
     {
-        var service = ServiceFor(InvoiceWith("INV-1", InvoiceStatus.PendingApproval));
+        var invoice = InvoiceWith("INV-1", InvoiceStatus.PendingApproval);
+        var service = new ApprovalService(new FakeInvoiceRepository(invoice));
 
         var result = service.Reject("INV-1", "demo.approver", "Duplicate invoice");
 
@@ -74,5 +77,90 @@ public class ApprovalServiceTests
         var service = ServiceFor(InvoiceWith("INV-1", InvoiceStatus.PendingApproval));
 
         Assert.Throws<ArgumentException>(() => service.Reject("INV-1", "demo.approver", "  "));
+    }
+}
+
+public class ApprovalLimitsTests
+{
+    private static ApprovalService CreateService(decimal amount, InvoiceStatus status) =>
+        new(new FakeInvoiceRepository(new Invoice 
+        { 
+            Id = "INV-1", 
+            CustomerName = "Test School", 
+            Amount = amount, 
+            Status = status 
+        }));
+
+    [Fact]
+    public void Approve_Manager_CanApproveUpTo50K()
+    {
+        var service = CreateService(49_999m, InvoiceStatus.PendingApproval);
+
+        var result = service.Approve("INV-1", "demo.manager");
+
+        Assert.True(result.Success);
+    }
+
+    [Fact]
+    public void Approve_Manager_CannotApproveOver50K()
+    {
+        var service = CreateService(50_001m, InvoiceStatus.PendingApproval);
+
+        var result = service.Approve("INV-1", "demo.manager");
+
+        Assert.False(result.Success);
+        Assert.Contains("exceeds Manager limit", result.Error!);
+    }
+
+    [Fact]
+    public void Approve_Manager_AtExactLimit_50K_Succeeds()
+    {
+        var service = CreateService(50_000m, InvoiceStatus.PendingApproval);
+
+        var result = service.Approve("INV-1", "demo.manager");
+
+        Assert.True(result.Success);
+    }
+
+    [Fact]
+    public void Approve_Director_CanApproveUpTo500K()
+    {
+        var service = CreateService(499_999m, InvoiceStatus.PendingApproval);
+
+        var result = service.Approve("INV-1", "demo.director");
+
+        Assert.True(result.Success);
+    }
+
+    [Fact]
+    public void Approve_Director_CannotApproveOver500K()
+    {
+        var service = CreateService(500_001m, InvoiceStatus.PendingApproval);
+
+        var result = service.Approve("INV-1", "demo.director");
+
+        Assert.False(result.Success);
+        Assert.Contains("exceeds Director limit", result.Error!);
+    }
+
+    [Fact]
+    public void Approve_Director_AtExactLimit_500K_Succeeds()
+    {
+        var service = CreateService(500_000m, InvoiceStatus.PendingApproval);
+
+        var result = service.Approve("INV-1", "demo.director");
+
+        Assert.True(result.Success);
+    }
+
+    [Fact]
+    public void Approve_Manager_AttemptsOver500K_Rejected()
+    {
+        var service = CreateService(600_000m, InvoiceStatus.PendingApproval);
+
+        var result = service.Approve("INV-1", "demo.manager");
+
+        Assert.False(result.Success);
+        Assert.Contains("exceeds Manager limit", result.Error!);
     }
 }
