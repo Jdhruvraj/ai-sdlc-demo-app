@@ -164,3 +164,134 @@ public class ApprovalLimitsTests
         Assert.Contains("exceeds Manager limit", result.Error!);
     }
 }
+
+public class TwoApproverApprovalTests
+{
+    private static Invoice HighValueInvoice(string id, InvoiceStatus status) =>
+        new() { Id = id, CustomerName = "Test School", Amount = 600_000m, Status = status };
+
+    [Fact]
+    public void SubmitFirst_Manager_CanApprove600K()
+    {
+        var invoice = HighValueInvoice("INV-1", InvoiceStatus.PendingApproval);
+        var service = new TwoApproverApproval(new FakeInvoiceRepository(invoice));
+
+        var result = service.SubmitFirst("INV-1", "demo.manager");
+
+        Assert.True(result.Success);
+        Assert.Equal("demo.manager", invoice.Approver1);
+    }
+
+    [Fact]
+    public void SubmitFirst_Director_CanApprove600K()
+    {
+        var invoice = HighValueInvoice("INV-1", InvoiceStatus.PendingApproval);
+        var service = new TwoApproverApproval(new FakeInvoiceRepository(invoice));
+
+        var result = service.SubmitFirst("INV-1", "demo.director");
+
+        Assert.True(result.Success);
+        Assert.Equal("demo.director", invoice.Approver1);
+    }
+
+    [Fact]
+    public void SubmitSecond_MustBeDirector()
+    {
+        var invoice = HighValueInvoice("INV-1", InvoiceStatus.PendingApproval);
+        
+        _ = new TwoApproverApproval(new FakeInvoiceRepository(invoice))
+            .SubmitFirst("INV-1", "demo.manager");
+
+        var service = new TwoApproverApproval(new FakeInvoiceRepository(invoice));
+
+        // Second approval by Manager (should fail)
+        var result = service.SubmitSecond("INV-1", "demo.manager");
+
+        Assert.False(result.Success);
+        Assert.Contains("must be a Director", result.Error!);
+        Assert.Null(invoice.Approver2); // Not updated
+    }
+
+    [Fact]
+    public void SubmitSecond_SameUser_Rejected()
+    {
+        var invoice = HighValueInvoice("INV-1", InvoiceStatus.PendingApproval);
+        
+        _ = new TwoApproverApproval(new FakeInvoiceRepository(invoice))
+            .SubmitFirst("INV-1", "demo.director");
+
+        var service = new TwoApproverApproval(new FakeInvoiceRepository(invoice));
+
+        // Same user as second approver (should fail)
+        var result = service.SubmitSecond("INV-1", "demo.director");
+
+        Assert.False(result.Success);
+        Assert.Contains("Same user cannot be both approvers", result.Error!);
+    }
+
+    [Fact]
+    public void SubmitSecond_FirstApproverNotSet_Rejected()
+    {
+        var invoice = HighValueInvoice("INV-1", InvoiceStatus.PendingApproval);
+        
+        // Clear first approver to simulate missing state
+        invoice.Approver1 = null;
+        _repository.Update(invoice);
+
+        var service = new TwoApproverApproval(new FakeInvoiceRepository(invoice));
+
+        var result = service.SubmitSecond("INV-1", "demo.director");
+
+        Assert.False(result.Success);
+        Assert.Contains("First approver not found", result.Error!);
+    }
+
+    [Fact]
+    public void Complete_TwoDistinctApprovers_Success()
+    {
+        var invoice = HighValueInvoice("INV-1", InvoiceStatus.PendingApproval);
+        
+        var service = new TwoApproverApproval(new FakeInvoiceRepository(invoice));
+
+        _ = service.SubmitFirst("INV-1", "demo.manager");
+        var result = service.SubmitSecond("INV-1", "demo.director");
+
+        Assert.True(result.Success);
+        Assert.Equal(InvoiceStatus.Approved, invoice.Status);
+        Assert.Equal("demo.manager", invoice.Approver1);
+        Assert.Equal("demo.director", invoice.Approver2);
+    }
+
+    [Fact]
+    public void Complete_ManagerAsSecond_ApproverRejected()
+    {
+        var invoice = HighValueInvoice("INV-1", InvoiceStatus.PendingApproval);
+        
+        _ = new TwoApproverApproval(new FakeInvoiceRepository(invoice))
+            .SubmitFirst("INV-1", "demo.manager");
+
+        var service = new TwoApproverApproval(new FakeInvoiceRepository(invoice));
+
+        // Manager cannot be second approver
+        var result = service.SubmitSecond("INV-1", "demo.manager");
+
+        Assert.False(result.Success);
+        Assert.Null(invoice.Approver2);
+    }
+
+    [Fact]
+    public void Complete_BothDirectors_Success()
+    {
+        var invoice = HighValueInvoice("INV-1", InvoiceStatus.PendingApproval);
+        
+        _ = new TwoApproverApproval(new FakeInvoiceRepository(invoice))
+            .SubmitFirst("INV-1", "demo.director");
+
+        var service = new TwoApproverApproval(new FakeInvoiceRepository(invoice));
+
+        // Different Director as second - success
+        var result = service.SubmitSecond("INV-1", "demo.another-director");
+
+        Assert.True(result.Success);
+    }
+}
