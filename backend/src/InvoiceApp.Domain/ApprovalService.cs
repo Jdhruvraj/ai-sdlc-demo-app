@@ -1,6 +1,15 @@
 namespace InvoiceApp.Domain;
 
 /// <summary>
+/// Result of an approval operation.
+/// </summary>
+public record ApprovalResult {
+    public bool Success { get; set; }
+    public string? Error { get; set; }
+    public Invoice? Invoice { get; set; }
+}
+
+/// <summary>
 /// Moves an invoice through its lifecycle: Draft -> PendingApproval -> Approved or Rejected.
 /// One invoice at a time, decided as a whole by a single approver.
 /// </summary>
@@ -26,12 +35,6 @@ public class ApprovalService
         invoice.Status = InvoiceStatus.PendingApproval;
         _repository.Update(invoice);
         return invoice;
-    }
-
-    public record ApprovalResult {
-        public bool Success { get; set; }
-        public string? Error { get; set; }
-        public Invoice? Invoice { get; set; }
     }
 
     public ApprovalResult Approve(string invoiceId, string approver)
